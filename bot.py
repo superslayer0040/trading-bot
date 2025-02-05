@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 import ccxt
+import re
 
 app = Flask(__name__)
 
@@ -13,20 +14,37 @@ exchange = ccxt.binance({
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.json
-    if not data:
+    if not data or 'message' not in data:
         return jsonify({"error": "Invalid data"}), 400
 
-    symbol = data.get('symbol')
-    side = data.get('side')
-    order_type = data.get('order_type')
-    quantity = data.get('quantity')
+    message = data['message']
+    
+    # Extract data from the message using regex
+    match = re.search(r'order (buy|sell) @ (\d+(\.\d+)?) filled on (\w+). New strategy position is (-?\d+(\.\d+)?)', message)
+    if not match:
+        return jsonify({"error": "Invalid message format"}), 400
 
-    if not symbol or not side or not order_type or not quantity:
-        return jsonify({"error": "Missing required fields"}), 400
+    side = match.group(1)
+    quantity = match.group(2)
+    symbol = match.group(4)
+    new_position = match.group(5)
+
+    # Set order_type to 'market' as per the example
+    order_type = 'market'
 
     try:
-        order = exchange.create_order(symbol, order_type, side, float(quantity))
-        return jsonify({"success": True, "order_id": order['id']}), 200
+        # Ensure quantity and new_position are floats
+        quantity = float(quantity)
+        new_position = float(new_position)
+        
+        # Validate side and order_type
+        if side not in ['buy', 'sell']:
+            return jsonify({"error": "Invalid side"}), 400
+        if order_type not in ['market', 'limit']:
+            return jsonify({"error": "Invalid order type"}), 400
+
+        order = exchange.create_order(symbol, order_type, side, quantity)
+        return jsonify({"success": True, "order_id": order['id'], "new_position": new_position}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
